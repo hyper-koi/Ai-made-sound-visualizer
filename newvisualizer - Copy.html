@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Pro Audio Engine - High-DPI Fixed</title>
+    <style>
+        :root { --accent: #00f2ff; --bg: #000; }
+        body { margin: 0; background: var(--bg); color: white; font-family: 'Inter', sans-serif; overflow: hidden; }
+        
+        .controls {
+            position: absolute; top: 0; left: 0; width: 280px; height: 100vh;
+            background: rgba(10, 10, 10, 0.95); padding: 30px 20px;
+            border-right: 1px solid rgba(255,255,255,0.1);
+            display: flex; flex-direction: column; gap: 15px;
+            backdrop-filter: blur(20px); z-index: 100;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            overflow-y: auto;
+        }
+        .controls.hidden { transform: translateX(-100%); }
+
+        .toggle-menu {
+            position: absolute; top: 20px; left: 300px;
+            background: rgba(20, 20, 20, 0.8); border: 1px solid #444;
+            color: white; padding: 10px 15px; border-radius: 8px;
+            cursor: pointer; z-index: 101; font-weight: bold;
+        }
+        .controls.hidden + .toggle-menu { left: 20px; }
+
+        .voltage-monitor {
+            position: absolute; top: 20px; right: 20px;
+            padding: 10px; background: rgba(0,0,0,0.7);
+            border-radius: 8px; font-size: 11px; border: 1px solid #333;
+            display: flex; align-items: center; gap: 10px;
+        }
+        #peakLed { width: 12px; height: 12px; border-radius: 50%; background: #0f0; }
+
+        .control-group { display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid #222; padding-bottom: 12px; }
+        label { font-size: 10px; text-transform: uppercase; color: #777; letter-spacing: 1px; }
+        
+        select, input[type="range"], button {
+            background: #1a1a1a; border: 1px solid #333; color: white;
+            padding: 8px; border-radius: 6px; outline: none;
+        }
+        button.active { background: var(--accent); color: #000; font-weight: bold; border-color: var(--accent); }
+
+        #colorContainer { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
+        .color-picker { width: 100%; height: 35px; border: none; padding: 0; background: none; cursor: pointer; border-radius: 4px;}
+
+        canvas { width: 100vw; height: 100vh; display: block; }
+        .fps-display { position: absolute; bottom: 20px; right: 20px; font-family: monospace; color: var(--accent); opacity: 0.6; }
+        
+        .mode-settings, .rainbow-settings { display: none; flex-direction: column; gap: 15px; }
+        .visible { display: flex !important; }
+    </style>
+</head>
+<body>
+
+    <div class="controls" id="menu">
+        <h2 style="margin:0; color: var(--accent); font-size: 20px;">System Engine</h2>
+        
+        <div class="control-group">
+            <label>Input Source</label>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                <button id="micBtn" onclick="initAudio('mic')">Mic</button>
+                <button id="tabBtn" onclick="initAudio('tab')">System</button>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Visualization Mode</label>
+            <select id="mode" onchange="toggleContextSettings()">
+                <option value="bars">Symmetric Bars</option>
+                <option value="ball" selected>Orbital Core</option>
+                <option value="plasma">Plasma Pulse</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label id="fpsLabel">Target FPS: 165</label>
+            <input type="range" id="fpsRange" min="1" max="165" value="165" oninput="document.getElementById('fpsLabel').innerText = `Target FPS: ${this.value}`">
+        </div>
+
+        <div class="control-group">
+            <label id="colorLabel">Color Count: 5</label>
+            <input type="range" id="colorCount" min="1" max="10" value="5" oninput="updateColorPickers()">
+            <div id="colorContainer"></div>
+            <button id="rainbowBtn" onclick="toggleRainbow()" style="margin-top:5px;">Toggle Rainbow Flow</button>
+        </div>
+
+        <div id="rainbowSettings" class="rainbow-settings">
+            <div class="control-group">
+                <label id="speedLabel">Rainbow Speed: 1.0</label>
+                <input type="range" id="rainbowSpeed" min="0.1" max="10" step="0.1" value="1" oninput="document.getElementById('speedLabel').innerText = `Rainbow Speed: ${this.value}`">
+            </div>
+        </div>
+
+        <div class="control-group">
+            <label>Gain Sensitivity</label>
+            <input type="range" id="sens" min="1" max="50" step="0.5" value="15">
+        </div>
+
+        <div id="ballSettings" class="mode-settings">
+            <div class="control-group">
+                <label>Core Diameter</label>
+                <input type="range" id="coreSize" min="5" max="300" value="50">
+            </div>
+            <div class="control-group">
+                <label id="ballDensityLabel">Orbital Bar Count: 120</label>
+                <input type="range" id="ballDensity" min="10" max="360" value="120" oninput="document.getElementById('ballDensityLabel').innerText = `Orbital Bar Count: ${this.value}`">
+            </div>
+        </div>
+
+        <div id="barSettings" class="mode-settings">
+            <div class="control-group">
+                <label id="barDensityLabel">Bar Count: 128</label>
+                <input type="range" id="barDensity" min="16" max="512" step="16" value="128" oninput="document.getElementById('barDensityLabel').innerText = `Bar Count: ${this.value}`">
+            </div>
+            <div class="control-group">
+                <label>Bar Alignment</label>
+                <select id="bassPos">
+                    <option value="center">Mirror Middle</option>
+                    <option value="sides">Standard</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <button class="toggle-menu" onclick="document.getElementById('menu').classList.toggle('hidden')">MENU ☰</button>
+    <div class="voltage-monitor"><div id="peakLed"></div> <span>PEAK LIMITER (10V)</span></div>
+    <div class="fps-display" id="fpsCounter">0 FPS</div>
+    <canvas id="visualizer"></canvas>
+
+    <script>
+        const canvas = document.getElementById('visualizer');
+        const ctx = canvas.getContext('2d', { alpha: false });
+        const colorContainer = document.getElementById('colorContainer');
+        
+        let audioCtx, analyser, dataArray;
+        let lastTimestamp = performance.now();
+        let isRainbow = false;
+        let hueBases = Array(10).fill(0).map((_, i) => i * 36);
+
+        // --- HIGH DPI FIX ---
+        function resize() {
+            const dpr = window.devicePixelRatio || 1;
+            const width = window.innerWidth;
+            const height = window.innerHeight;
+            
+            // Set the physical resolution
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            
+            // Set the display size
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            
+            // Scale the context to match physical resolution
+            ctx.scale(dpr, dpr);
+        }
+        window.onresize = resize;
+        resize();
+        // --------------------
+
+        function toggleContextSettings() {
+            const mode = document.getElementById('mode').value;
+            document.getElementById('ballSettings').classList.toggle('visible', mode === 'ball');
+            document.getElementById('barSettings').classList.toggle('visible', mode === 'bars');
+            document.getElementById('rainbowSettings').classList.toggle('visible', isRainbow);
+        }
+        toggleContextSettings();
+
+        function hslToHex(h, s, l) {
+            l /= 100;
+            const a = s * Math.min(l, 1 - l) / 100;
+            const f = n => {
+                const k = (n + h / 30) % 12;
+                const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1);
+                return Math.round(255 * color).toString(16).padStart(2, '0');
+            };
+            return `#${f(0)}${f(8)}${f(4)}`;
+        }
+
+        function updateColorPickers() {
+            const count = document.getElementById('colorCount').value;
+            document.getElementById('colorLabel').innerText = `Color Count: ${count}`;
+            colorContainer.innerHTML = '';
+            const defaults = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ffa500', '#ffffff', '#800080', '#008080'];
+            for(let i=0; i<count; i++) {
+                const input = document.createElement('input');
+                input.type = 'color';
+                input.className = 'color-picker';
+                input.value = defaults[i % defaults.length];
+                colorContainer.appendChild(input);
+            }
+        }
+        updateColorPickers();
+
+        function toggleRainbow() {
+            isRainbow = !isRainbow;
+            document.getElementById('rainbowBtn').classList.toggle('active', isRainbow);
+            toggleContextSettings();
+        }
+
+        async function initAudio(type) {
+            if (audioCtx) audioCtx.close();
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 2048;
+            dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+            try {
+                const stream = type === 'mic' 
+                    ? await navigator.mediaDevices.getUserMedia({ audio: true })
+                    : await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+
+                const source = audioCtx.createMediaStreamSource(stream);
+                const compressor = audioCtx.createDynamicsCompressor();
+                source.connect(compressor);
+                compressor.connect(analyser);
+                if(type === 'tab') compressor.connect(audioCtx.destination);
+                
+                document.getElementById('micBtn').className = type === 'mic' ? 'active' : '';
+                document.getElementById('tabBtn').className = type === 'tab' ? 'active' : '';
+                requestAnimationFrame(renderLoop);
+            } catch (e) { alert("Selection cancelled."); }
+        }
+
+        function renderLoop(timestamp) {
+            const targetFps = parseInt(document.getElementById('fpsRange').value);
+            const interval = 1000 / targetFps;
+            const elapsed = timestamp - lastTimestamp;
+            if (elapsed >= interval) {
+                lastTimestamp = timestamp - (elapsed % interval);
+                document.getElementById('fpsCounter').innerText = `${Math.round(1000/elapsed)} FPS`;
+                draw();
+            }
+            requestAnimationFrame(renderLoop);
+        }
+
+        function draw() {
+            analyser.getByteFrequencyData(dataArray);
+            const pickers = document.querySelectorAll('.color-picker');
+            const sens = parseFloat(document.getElementById('sens').value);
+            const mode = document.getElementById('mode').value;
+            const rSpeed = parseFloat(document.getElementById('rainbowSpeed').value);
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+
+            if (isRainbow) {
+                pickers.forEach((p, i) => {
+                    hueBases[i] = (hueBases[i] + rSpeed) % 360;
+                    p.value = hslToHex(hueBases[i], 100, 50);
+                });
+            }
+
+            const colors = Array.from(pickers).map(p => p.value);
+            document.getElementById('peakLed').style.backgroundColor = Math.max(...dataArray) > 248 ? '#ff0000' : '#00ff44';
+
+            ctx.fillStyle = 'black';
+            ctx.fillRect(0, 0, w, h);
+
+            if (mode === 'bars') {
+                const density = parseInt(document.getElementById('barDensity').value);
+                let renderData = Array.from(dataArray.slice(0, density));
+                if (document.getElementById('bassPos').value === 'center') {
+                    renderData = [...renderData.slice(0, density/2).reverse(), ...renderData.slice(0, density/2)];
+                }
+                const barWidth = w / renderData.length;
+                renderData.forEach((v, i) => {
+                    const barH = (v / 255) * h * (sens / 30);
+                    const g = ctx.createLinearGradient(0, h, 0, h - barH);
+                    colors.forEach((c, idx) => g.addColorStop(idx / (colors.length - 1 || 1), c));
+                    ctx.fillStyle = g;
+                    ctx.fillRect(i * barWidth, h - barH, barWidth - 1, barH);
+                });
+            } else if (mode === 'ball') {
+                const cx = w / 2, cy = h / 2;
+                const coreSize = parseInt(document.getElementById('coreSize').value);
+                const density = parseInt(document.getElementById('ballDensity').value);
+                const radius = coreSize + (dataArray[0] * 0.25); 
+                const g = ctx.createRadialGradient(cx, cy, radius * 0.1, cx, cy, radius);
+                colors.forEach((c, idx) => g.addColorStop(idx / (colors.length - 1 || 1), c));
+                ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+                
+                for(let i=0; i < density; i++) {
+                    const angle = (i / density) * Math.PI * 2;
+                    const val = dataArray[Math.floor((i / density) * 256)];
+                    const barLen = (val / 255) * (h * 0.8) * (sens / 20);
+                    ctx.strokeStyle = colors[i % colors.length];
+                    ctx.lineWidth = Math.max(1, (w / density) * 0.5); 
+                    ctx.lineCap = 'round';
+                    ctx.beginPath();
+                    ctx.moveTo(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius);
+                    ctx.lineTo(cx + Math.cos(angle) * (radius + barLen), cy + Math.sin(angle) * (radius + barLen));
+                    ctx.stroke();
+                }
+            } else if (mode === 'plasma') {
+                for(let i=0; i<colors.length; i++) {
+                    const val = dataArray[i * 20] || dataArray[0];
+                    const r = (val / 255) * (w * 0.8) * (sens / 15);
+                    const x = w/2 + Math.cos(performance.now()*0.0008 + (i * 2)) * (w * 0.2);
+                    const y = h/2 + Math.sin(performance.now()*0.0006 + (i * 2)) * (h * 0.2);
+                    const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+                    g.addColorStop(0, colors[i]); g.addColorStop(1, 'transparent');
+                    ctx.globalAlpha = 0.5; ctx.fillStyle = g;
+                    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+            }
+        }
+    </script>
+</body>
+</html>
